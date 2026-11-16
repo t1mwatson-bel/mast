@@ -35,6 +35,7 @@ FINALIZE_WAIT_SECONDS = 30
 
 # Цикл мастей
 SUIT_CYCLE = ["♣️", "♦️", "♠️", "♥️"]
+CYCLE_BASE_GAME = 1  # Начинаем строго с 1
 
 # Базовая игра цикла (995 = ♣️)
 CYCLE_BASE_GAME = 995
