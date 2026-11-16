@@ -59,15 +59,16 @@ def parse_game_message(text):
 # ЦИКЛ МАСТЕЙ
 # =====================================================================
 
-def get_suit_for_game(game_id):
-    """Возвращает масть для нечётного game_id по циклу.
-    Чётные возвращают None."""
+ddef get_suit_for_game(game_id):
+    """Возвращает масть для нечётного game_id по глобальному циклу от 1."""
     if game_id % 2 == 0:
         return None
 
+    # Считаем количество нечётных шагов от 1
     steps = (game_id - CYCLE_BASE_GAME) // 2
-    suit = SUIT_CYCLE[steps % len(SUIT_CYCLE)]
-    return suit
+    
+    index = steps % len(SUIT_CYCLE)
+    return SUIT_CYCLE[index]
 
 # =====================================================================
 # ПОИСК МАСТИ У ИГРОКА
