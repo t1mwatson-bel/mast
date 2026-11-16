@@ -81,53 +81,11 @@ def find_suit_in_player(game, suit):
     return None
 
 # =====================================================================
-# ПРОВЕРКА ДОГОНОВ (д0, д1, д2)
+# ХЕЛПЕРЫ (возвращены для совместимости с main.py)
 # =====================================================================
 
-def check_dogon(game, target_game, target_suit, max_dogon=2):
-    """
-    Проверяет, попала ли масть в догон.
-    Возвращает dict с результатом или None, если игра вне диапазона.
-    """
-    diff = game["game_id"] - target_game
-    if diff < 0 or diff > max_dogon:
-        return None
-
-    card = find_suit_in_player(game, target_suit)
-    if card:
-        return {
-            "hit": True,
-            "dogon": diff,
-            "card": card,
-            "game_id": game["game_id"],
-            "target_game": target_game,
-            "target_suit": target_suit,
-        }
-    return None
-
-# =====================================================================
-# ФОРМИРОВАНИЕ СООБЩЕНИЙ
-# =====================================================================
-
-def format_prediction(target_game, target_suit):
-    return f"🎯 Прогноз на игру #N{target_game}: масть {target_suit}"
-
-def format_hit(result):
-    return (
-        f"✅ Прогноз #N{result['target_game']} ({result['target_suit']}) сработал!\n"
-        f"Масть зашла на д{result['dogon']} (игра #N{result['game_id']})\n"
-        f"Карта игрока: {result['card']}"
-    )
-
-def format_miss(target_game, target_suit):
-    return (
-        f"❌ Прогноз #N{target_game} ({target_suit}) не сработал.\n"
-        f"Масть не зашла за 3 игры (д0, д1, д2)."
-    )
-
-# =====================================================================
-# ХЕЛПЕРЫ
-# =====================================================================
+def add_game_offset(game_number, offset):
+    return game_number + offset
 
 def log_game(game):
     p = game.get("player_cards", [])
