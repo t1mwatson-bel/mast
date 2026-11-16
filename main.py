@@ -104,8 +104,6 @@ def make_result_message(p, result):
 
 
 def create_prediction(game):
-    # УБРАНА ПРОВЕРКА has_active_prediction()
-    
     current_id = game["game_id"]
 
     if current_id % 2 == 0:
@@ -200,6 +198,12 @@ def check_predictions():
         # Проверка Д0, Д1, Д2
         for dogon in range(0, DOGON_GAMES):
             gnum = add_game_offset(target, dogon)
+            
+            # ЕСЛИ ИГРА ВСЕ ЕЩЕ ЖДЕТ ОБНОВЛЕНИЯ (PENDING) - ЖДЕМ
+            if gnum in pending_games:
+                waiting = True
+                break
+
             g = games_cache.get(gnum)
 
             if not g:
@@ -231,7 +235,7 @@ def check_predictions():
         if won or waiting:
             continue
 
-        # Проигрыш
+        # Проигрыш (все догоны исчерпаны)
         total = sum(bet_for_dogon(base_bet, d) for d in range(0, DOGON_GAMES))
         last_bet = bet_for_dogon(base_bet, DOGON_GAMES - 1)
 
@@ -263,6 +267,8 @@ def on_game_message(game_number, text, is_edited):
         if g:
             games_cache[game_number] = g
             print(f"🔄 Обновлена #N{game_number}", flush=True)
+            # ПЕРЕПРОВЕРЯЕМ ПРОГНОЗЫ ПОСЛЕ ОБНОВЛЕНИЯ
+            check_predictions()
         return
 
     if re.search(r"[✅🔰▶️◀️]", text):
@@ -290,6 +296,8 @@ def finalize_pending_games():
         games_cache[n] = g
         log_game(g)
         create_prediction(g)
+        # ПЕРЕПРОВЕРЯЕМ ПРОГНОЗЫ ПОСЛЕ ФИНАЛИЗАЦИИ ИГРЫ
+        check_predictions()
 
 
 def cleanup_games_cache():
