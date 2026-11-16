@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 
 import os
@@ -11,14 +10,15 @@ from datetime import datetime, timedelta, time as dtime
 from config import (
     BOT_TOKEN, CHANNEL_PROGNOZ, CHANNEL_STATS,
     PREDICTIONS_FILE, POLL_INTERVAL, FINALIZE_WAIT_SECONDS,
-    DOGON_GAMES, SEND_BEFORE_TARGET, PREDICTION_TIMEOUT_MINUTES,
+    DOGON_GAMES, PREDICTION_TIMEOUT_MINUTES,
     CLEANUP_HOUR, CLEANUP_MINUTE,
     MAX_GAMES_CACHE, MAX_PREDICTIONS_STORED, MOSCOW_TZ,
+    SUIT_CYCLE, CYCLE_BASE_GAME,
 )
 
 from parsers import (
     parse_game_message, log_game, add_game_offset,
-    find_trigger, find_suit_in_player, normalize_suit,
+    get_suit_for_game, find_suit_in_player, normalize_suit,
 )
 
 from telegram_api import (
@@ -170,24 +170,28 @@ def create_prediction(game):
     if has_active_prediction():
         return None
 
-    trigger = find_trigger(game)
+    current_id = game["game_id"]
 
-    if not trigger:
+    # Нас интересуют только нечётные игры (например, 993)
+    if current_id % 2 == 0:
         return None
 
-    target = trigger["target_number"]
-    suit = trigger["predicted_suit"]
+    # Целевая игра — следующая нечётная (например, 995)
+    target = current_id + 2
+
+    # Получаем масть для целевой игры из цикла
+    suit = get_suit_for_game(target)
+    if not suit:
+        return None
+
     base_bet = get_current_bet()
 
     prediction = {
-        "algorithm": "player_first_card_trigger",
-        "trigger_number": trigger["trigger_number"],
+        "algorithm": "game_id_cycle",
+        "trigger_number": current_id,
         "trigger_game_id": game.get("game_id"),
-        "trigger_card": trigger["trigger_card"],
         "target_number": target,
         "predicted_suit": suit,
-        "target_offset": target - trigger["trigger_number"],
-        "send_at_game": target - SEND_BEFORE_TARGET,
         "dogon": 0,
         "base_bet": base_bet,
         "bet": base_bet,
@@ -206,11 +210,12 @@ def create_prediction(game):
 
     print(
         f"\n🔮 ПРОГНОЗ: #N{target} {suit} "
-        f"(триггер #N{trigger['trigger_number']} "
-        f"{trigger['trigger_card']}, "
-        f"отправка от #N{prediction['send_at_game']})",
+        f"(триггер #N{current_id}, отправка сразу)",
         flush=True
     )
+
+    # Сразу отправляем прогноз
+    send_prediction(prediction)
 
     return prediction
 
@@ -219,7 +224,7 @@ def send_prediction(p):
     mid = telegram_send(make_prediction_message(p))
 
     if not mid:
-        print(f"❌ Не отправить #N{p['target_number']}", flush=True)
+        print(f"❌ Не отправлен #N{p['target_number']}", flush=True)
         return False
 
     p["message_id"] = mid
@@ -237,36 +242,7 @@ def send_prediction(p):
 
 
 # =====================================================================
-# ОТЛОЖЕННАЯ ОТПРАВКА
-# =====================================================================
-
-def try_send_pending():
-    changed = False
-
-    for p in predictions:
-        if p.get("status") != "pending":
-            continue
-
-        if p.get("message_id"):
-            continue
-
-        send_at = p.get("send_at_game")
-
-        if send_at is None:
-            continue
-
-        if not any(n >= send_at for n in games_cache):
-            continue
-
-        if send_prediction(p):
-            changed = True
-
-    if changed:
-        save_predictions()
-
-
-# =====================================================================
-# ПРОВЕРКА ПРОГНОЗОВ
+# ПРОВЕРКА ПРОГНОЗОВ (Д0, Д1, Д2)
 # =====================================================================
 
 def check_predictions():
@@ -322,8 +298,8 @@ def check_predictions():
 
         base_bet = p.get("base_bet", p.get("bet", 0))
 
-        # Проверка Д0–Д3
-        for dogon in range(0, DOGON_GAMES + 1):
+        # Проверка Д0, Д1, Д2 (3 игры)
+        for dogon in range(0, DOGON_GAMES):
             gnum = add_game_offset(target, dogon)
             g = games_cache.get(gnum)
 
@@ -368,24 +344,24 @@ def check_predictions():
         if won or waiting:
             continue
 
-        # Полный проигрыш серии
+        # Полный проигрыш серии (все 3 игры без масти)
         total = sum(
             bet_for_dogon(base_bet, d)
-            for d in range(0, DOGON_GAMES + 1)
+            for d in range(0, DOGON_GAMES)
         )
 
         last_bet = bet_for_dogon(
             base_bet,
-            DOGON_GAMES
+            DOGON_GAMES - 1
         )
 
         p["status"] = "lose"
         p["result_game"] = (
             checked[-1]
             if checked
-            else add_game_offset(target, DOGON_GAMES)
+            else add_game_offset(target, DOGON_GAMES - 1)
         )
-        p["dogon"] = DOGON_GAMES
+        p["dogon"] = DOGON_GAMES - 1
         p["bet"] = last_bet
         p["total_lost"] = total
         p["closed_at"] = now.isoformat()
@@ -396,7 +372,6 @@ def check_predictions():
                 make_result_message(p, "lose")
             )
 
-        # Передаём базовую ставку Д0, а не сумму серии
         apply_lose(p, base_bet)
 
         print(
@@ -499,15 +474,13 @@ def cleanup_predictions():
 
 def main():
     print("\n==================================================", flush=True)
-    print("🚀 CYBER 21 — PLAYER FIRST CARD TRIGGER", flush=True)
+    print("🚀 CYBER 21 — GAME ID CYCLE ALGORITHM", flush=True)
     print("==================================================", flush=True)
-    print("🎯 Триггер: 1-я карта игрока → масть", flush=True)
-    print("📍 Отступ до цели: +10 игр", flush=True)
-    print(
-        f"📤 Отправка за {SEND_BEFORE_TARGET} игр до цели",
-        flush=True
-    )
-    print(f"🔄 Догоны: Д0..Д{DOGON_GAMES}", flush=True)
+    print("🎯 Триггер: нечётный номер игры (Game ID)", flush=True)
+    print("📍 Цель: следующая нечётная игра (+2)", flush=True)
+    print("🎨 Масть: цикл ♣️ → ♦️ → ♠️ → ♥️ (база 995 = ♣️)", flush=True)
+    print("📤 Отправка: сразу после триггера", flush=True)
+    print(f"🔄 Догоны: Д0..Д{DOGON_GAMES - 1} (всего {DOGON_GAMES} игры)", flush=True)
     print(
         f"⏰ Таймаут: {PREDICTION_TIMEOUT_MINUTES} мин от создания",
         flush=True
@@ -538,7 +511,6 @@ def main():
             )
 
             finalize_pending_games()
-            try_send_pending()
             check_predictions()
             cleanup_games_cache()
             cleanup_predictions()
